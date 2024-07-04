@@ -1,0 +1,110 @@
+{% extends 'base.html' %} 
+{% block content %}
+<div class="message-box">
+  <h2>Chat Room: {{code}} for a Client</h2>
+  <div class="messages" id="messages">
+    {% for message in messages %}
+    <div class="text">
+      <span><strong>{{ message.name }}</strong>: {{ message.message }}</span>
+      <span class="muted">{{ message.timestamp }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <form id="message_form">
+    <div class="inputs">
+      <input
+        type="text"
+        id="message_input"
+        name="message"
+        placeholder="Message"
+        onkeyup="enterkey()"
+      />
+      <button id="send_button" type="submit">Send</button>
+    </div>
+  </form>
+</div>
+<script type="text/javascript">
+  var socket = io();
+
+  const messages = document.getElementById("messages");
+
+  const createMessage = (name, msg, role) => {
+    const content = `
+        <div class="text">
+            <span><strong>${name} (${role})</strong>: ${msg}</span>
+            <span class="muted">${new Date().toLocaleString()}</span>
+        </div>
+        `;
+    messages.innerHTML += content;
+  };
+
+  socket.on("message", (data) => {
+    createMessage(data.name, data.message, data.role);
+  });
+
+  const sendMessage = async (event) => {
+    event.preventDefault();
+    const message = document.getElementById("message_input").value;
+    if (message === "") return;
+
+    const threadId = localStorage.getItem("thread_id");
+    if (!threadId) {
+      // 스레드가 없는 경우 생성하고 ID를 받아옴
+      const threadResponse = await fetch('/create_thread', {
+        method: 'POST'
+      });
+      const threadData = await threadResponse.json();
+      const newThreadId = threadData.thread_id;
+      localStorage.setItem("thread_id", newThreadId);
+      await sendMessageToAssistant(newThreadId, message);
+    } else {
+      await sendMessageToAssistant(threadId, message);
+    }
+
+    document.getElementById("message_input").value = "";
+  };
+
+  const enterkey = () => {
+    if (window.event.keyCode === 13) {
+      sendMessage(event);
+    }
+  };
+
+  document.getElementById("message_form").addEventListener("submit", sendMessage);
+
+  const sendMessageToAssistant = async (threadId, message) => {
+    // 메시지를 스레드에 추가
+    await fetch('/add_message_to_thread', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ thread_id: threadId, message: message })
+    });
+
+    // 어시스턴트에게 메시지를 보냄
+    const assistantResponse = await fetch('/run_assistant', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ thread_id: threadId })
+    });
+
+    const assistantData = await assistantResponse.json();
+    createMessage('AI Assistant', assistantData.message, 'Assistant');
+  };
+
+  socket.on("connect", () => {
+    fetch('/create_thread', {
+      method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+      const threadId = data.thread_id;
+      console.log("Thread created with ID:", threadId);
+      localStorage.setItem("thread_id", threadId);
+    });
+  });
+</script>
+{% endblock %}

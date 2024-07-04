@@ -34,6 +34,16 @@
     messages.innerHTML += content;
   };
 
+  /* function sendMessageToAssistant(name, msg, role) {
+    client.beta.threads.create()
+    room code 가 같으면 thread_id 도 같아야하는데
+    그걸 어떻게 구현하냐...
+  } */
+
+ function sendMessageToAssistant(name, msg, role) {
+
+} 
+
   socket.on("message", (data) => {
     createMessage(data.name, data.message, data.role);
   });
@@ -52,3 +62,6 @@
   };
 </script>
 {% endblock %}
+
+<!-- 여기에도 thread 생성 코드가 있어야 하고,
+그 thread.id 를 app.py 로 보내줘야 하는구나 -->

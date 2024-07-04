@@ -1,29 +1,23 @@
-from flask import Flask, render_template, request, session, redirect, url_for
+from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 from flask_socketio import join_room, leave_room, send, SocketIO, emit
 import random
 from string import ascii_uppercase
-from openai import OpenAI
-
 from dotenv import load_dotenv
 import os
-
-load_dotenv()
-
-OPENAIKEYNAME = os.getenv('OPENAIKEYNAME')
-ASSISTANT_ID = os.getenv('ASSISTANT_ID')
-print(type(ASSISTANT_ID))
+from openai import OpenAI
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "secretkeyname"
 socketio = SocketIO(app)
 
-client = OpenAI(api_key=OPENAIKEYNAME)
-assistant_id = ASSISTANT_ID
-
-assistant = client.beta.assistants.retrieve(ASSISTANT_ID)
-# print(assistant)
-
 rooms = {}
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+ASSISTANT_ID = os.getenv('ASSISTANT_ID')
 
 def generate_unique_code(length):
     while True:
@@ -41,8 +35,6 @@ def home():
         join = request.form.get("join", False)
         create = request.form.get("create", False)
         role = request.form.get("role")
-        # thread_room = request.form.get("thread_id") ???
-        # 
 
         if not name:
             return render_template("home.html", error="Please enter a name.", code=code, name=name, role=role)
@@ -63,7 +55,7 @@ def home():
         session["room"] = room
         session["name"] = name
         session["role"] = role
-        return redirect(url_for("room", role=role))
+        return redirect(url_for("room"))
 
     return render_template("home.html")
 
@@ -78,10 +70,37 @@ def room():
     else:
         return render_template("room_client.html", code=room, messages=rooms[room]["messages"])
 
+@app.route("/create_thread", methods=["POST"])
+def create_thread():
+    empty_thread = client.beta.threads.create()
+    return jsonify({"thread_id": empty_thread.id})
+
+@app.route("/add_message_to_thread", methods=["POST"])
+def add_message_to_thread():
+    data = request.get_json()
+    thread_id = data["thread_id"]
+    message = data["message"]
+    client.beta.threads.messages.create(
+        thread_id=thread_id,
+        role="user",
+        content=message
+    )
+    return jsonify({"status": "message added"})
+
+@app.route("/run_assistant", methods=["POST"])
+def run_assistant():
+    data = request.get_json()
+    thread_id = data["thread_id"]
+    run = client.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=ASSISTANT_ID
+    )
+    response_message = run['messages'][-1]['content']
+    return jsonify({"message": response_message})
+
 @socketio.on("message")
 def message(data):
     room = session.get("room")
-    role = session.get("role")
     if room not in rooms:
         return
 
@@ -91,40 +110,38 @@ def message(data):
         "role": data["role"]
     }
 
+    send(content, to=room)
+    rooms[room]["messages"].append(content)
+    print(f"{session.get('name')} said: {data['data']}")
 
+    if content["role"] == "Therapist":
+        response = process_assistant_message(data["data"], data["thread_id"])
+        ai_content = {
+            "name": "AI Assistant",
+            "message": response,
+            "role": "Assistant"
+        }
+        emit("assistant_message", ai_content, to=room)
+        rooms[room]["messages"].append(ai_content)
+        print(f"AI Assistant recommended: {response}")
 
-    if role == "Client":
-        # 1) create thread (assistant function)
-        room = session.get("room")
-        thread_id = client.beta.threads.create()
-        thread_room = client.beta.threads.retrieve(thread_id)
-        # 2) message -> assistant input 으로 전달
-        thread_message = client.beta.threads.messages.create(
-            thread_id, 
-            role=role,
-            content=content["message"],
-        )
-        # 3) run()
-        run = client.beta.threads.create_and_run_stream(
-            assistant_id=ASSISTANT_ID,
-            thread={
-                "messages": thread_message,
-            }
-        )
-        # 4) output -> "assistant tips" 로 "therapist.html" 에 전달
-        # 5) if error: cancel run, print("AI message retrieval failed.😥") 
-        # 5번은 걍 안만들생각. 귀찮음(어려움)
+def process_assistant_message(user_message, thread_id):
+    client.beta.threads.messages.create(
+        thread_id=thread_id,
+        role="user",
+        content=user_message
+    )
 
-        send(content, to=room)
-        rooms[room]["messages"].append(content)
-        print(f"{session.get('name')} said: {data['data']}")
-    else:
-        send(content, to=room)
-        rooms[room]["messages"].append(content)
-        print(f"{session.get('name')} said: {data['data']}")
+    run = client.beta.threads.runs.create(
+        thread_id=thread_id,
+        assistant_id=ASSISTANT_ID
+    )
+
+    response_message = run['messages'][-1]['content']
+    return response_message
 
 @socketio.on("connect")
-def connect(auth):
+def connect():
     room = session.get("room")
     name = session.get("name")
     role = session.get("role")
@@ -135,14 +152,9 @@ def connect(auth):
         return
 
     join_room(room)
-    send({"name": name, "message": "has entered the room", "role": role}, to=room)  # sends messages to everyone in the room
+    send({"name": name, "message": "has entered the room", "role": role}, to=room)
     rooms[room]["members"] += 1
     print(f"{name} joined room {room}")
-
-    # thread_room = thread_room (위에서 만든 thread room 이랑 똑같은애를 가져와야함)
-    thread_id = request.form.get("thread_id")
-    thread_room = client.beta.threads(thread_id)
-
 
 @socketio.on("disconnect")
 def disconnect():
@@ -153,11 +165,10 @@ def disconnect():
     if room in rooms:
         rooms[room]["members"] -= 1
         if rooms[room]["members"] <= 0:
-            del rooms[room]  # delete room when every user leaves
+            del rooms[room]
 
     send({"name": name, "message": "has left the room"}, to=room)
     print(f"{name} has left the room {room}")
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True)  # for development, automatically refreshes
-    # socketio.run(app, host='0.0.0.0') # for deployment
+    socketio.run(app, debug=True)
