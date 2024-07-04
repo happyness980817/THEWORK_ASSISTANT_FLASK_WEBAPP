@@ -3,6 +3,8 @@
   <h2>Chat Room: {{code}} for a Therapist</h2>
   <div id="ai_recommendation">
     <strong>AI Recommendation:</strong> {{ ai_recommendation }}
+    <!-- need some CSS design which differentiates messages from users-->
+     <!-- background color: blue, div height bigger -->
   </div>
   <div class="messages" id="messages">
     {% for message in messages %}
@@ -38,12 +40,12 @@
     messages.innerHTML += content;
   };
 
+  socket.on("assistant_message", (data) => {
+    // assistant message -> 
+  });
+
   socket.on("message", (data) => {
-    if (data.role === "Assistant") {
-      ai_recommendation.innerHTML = `<strong>AI Recommendation:</strong> ${data.message}`;
-    } else {
-      createMessage(data.name, data.message, data.role);
-    }
+    // therapist message -> 
   });
 
   const sendMessage = () => {
