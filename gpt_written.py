@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, session, redirect, url_for, jsonify
+from flask import Flask, render_template, request, session, redirect, url_for
 from flask_socketio import join_room, leave_room, send, SocketIO, emit
 import random
 from string import ascii_uppercase
@@ -70,34 +70,6 @@ def room():
     else:
         return render_template("room_client.html", code=room, messages=rooms[room]["messages"])
 
-@app.route("/create_thread", methods=["POST"])
-def create_thread():
-    empty_thread = client.beta.threads.create()
-    return jsonify({"thread_id": empty_thread.id})
-
-@app.route("/add_message_to_thread", methods=["POST"])
-def add_message_to_thread():
-    data = request.get_json()
-    thread_id = data["thread_id"]
-    message = data["message"]
-    client.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=message
-    )
-    return jsonify({"status": "message added"})
-
-@app.route("/run_assistant", methods=["POST"])
-def run_assistant():
-    data = request.get_json()
-    thread_id = data["thread_id"]
-    run = client.beta.threads.runs.create(
-        thread_id=thread_id,
-        assistant_id=ASSISTANT_ID
-    )
-    response_message = run['messages'][-1]['content']
-    return jsonify({"message": response_message})
-
 @socketio.on("message")
 def message(data):
     room = session.get("room")
@@ -115,7 +87,7 @@ def message(data):
     print(f"{session.get('name')} said: {data['data']}")
 
     if content["role"] == "Therapist":
-        response = process_assistant_message(data["data"], data["thread_id"])
+        response = process_assistant_message(data["data"])
         ai_content = {
             "name": "AI Assistant",
             "message": response,
@@ -125,23 +97,25 @@ def message(data):
         rooms[room]["messages"].append(ai_content)
         print(f"AI Assistant recommended: {response}")
 
-def process_assistant_message(user_message, thread_id):
-    client.beta.threads.messages.create(
-        thread_id=thread_id,
-        role="user",
-        content=user_message
+def process_assistant_message(user_message):
+    stream = client.beta.threads.create_and_run(
+        assistant_id=ASSISTANT_ID,
+        thread={
+            "messages": [
+                {"role": "user", "content": user_message}
+            ]
+        },
+        stream=True
     )
 
-    run = client.beta.threads.runs.create(
-        thread_id=thread_id,
-        assistant_id=ASSISTANT_ID
-    )
-
-    response_message = run['messages'][-1]['content']
+    response_message = ""
+    for event in stream:
+        if 'content' in event:
+            response_message += event['content']['text']['value']
     return response_message
 
 @socketio.on("connect")
-def connect():
+def connect(auth):
     room = session.get("room")
     name = session.get("name")
     role = session.get("role")

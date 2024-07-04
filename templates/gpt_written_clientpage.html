@@ -47,19 +47,10 @@
     const message = document.getElementById("message_input").value;
     if (message === "") return;
 
-    const threadId = localStorage.getItem("thread_id");
-    if (!threadId) {
-      // 스레드가 없는 경우 생성하고 ID를 받아옴
-      const threadResponse = await fetch('/create_thread', {
-        method: 'POST'
-      });
-      const threadData = await threadResponse.json();
-      const newThreadId = threadData.thread_id;
-      localStorage.setItem("thread_id", newThreadId);
-      await sendMessageToAssistant(newThreadId, message);
-    } else {
-      await sendMessageToAssistant(threadId, message);
-    }
+    socket.emit("message", { data: message, role: "Client" });
+
+    const assistantMessage = await sendMessageToAssistant(message);
+    createMessage('AI Assistant', assistantMessage, 'Assistant');
 
     document.getElementById("message_input").value = "";
   };
@@ -72,39 +63,21 @@
 
   document.getElementById("message_form").addEventListener("submit", sendMessage);
 
-  const sendMessageToAssistant = async (threadId, message) => {
-    // 메시지를 스레드에 추가
-    await fetch('/add_message_to_thread', {
+  const sendMessageToAssistant = async (message) => {
+    const response = await fetch('/process_message', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ thread_id: threadId, message: message })
+      body: JSON.stringify({ message: message })
     });
 
-    // 어시스턴트에게 메시지를 보냄
-    const assistantResponse = await fetch('/run_assistant', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ thread_id: threadId })
-    });
-
-    const assistantData = await assistantResponse.json();
-    createMessage('AI Assistant', assistantData.message, 'Assistant');
+    const data = await response.json();
+    return data.message;
   };
 
   socket.on("connect", () => {
-    fetch('/create_thread', {
-      method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-      const threadId = data.thread_id;
-      console.log("Thread created with ID:", threadId);
-      localStorage.setItem("thread_id", threadId);
-    });
+    console.log("Connected to server");
   });
 </script>
 {% endblock %}
