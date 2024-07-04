@@ -68,7 +68,7 @@ def room():
     if role == "Therapist":
         return render_template("room_therapist.html", code=room, messages=rooms[room]["messages"])
     else:
-        return render_template("room_client.html", code=room, messages=rooms[room]["messages"])
+        return render_template("gpt_written_clientpage.html", code=room, messages=rooms[room]["messages"])
 
 @socketio.on("message")
 def message(data):
@@ -115,7 +115,7 @@ def process_assistant_message(user_message):
     return response_message
 
 @socketio.on("connect")
-def connect(auth):
+def connect():
     room = session.get("room")
     name = session.get("name")
     role = session.get("role")
