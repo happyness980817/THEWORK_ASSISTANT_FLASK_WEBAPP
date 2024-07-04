@@ -1,0 +1,62 @@
+{% extends 'base.html' %} {% block content %}
+<div class="message-box">
+  <h2>Chat Room: {{code}} for a Therapist</h2>
+  <div id="ai_recommendation">
+    <strong>AI Recommendation:</strong> {{ ai_recommendation }}
+  </div>
+  <div class="messages" id="messages">
+    {% for message in messages %}
+    <div class="text">
+      <span><strong>{{ message.name }}</strong>: {{ message.message }}</span>
+      <span class="muted">{{ message.timestamp }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="inputs">
+    <input
+      type="text"
+      id="message_input"
+      placeholder="Message"
+      onkeyup="enterkey()"
+    />
+    <button id="send_button" onClick="sendMessage()">Send</button>
+  </div>
+</div>
+<script type="text/javascript">
+  var socket = io();
+
+  const messages = document.getElementById("messages");
+  const ai_recommendation = document.getElementById("ai_recommendation");
+
+  const createMessage = (name, msg, role) => {
+    const content = `
+        <div class="text">
+            <span><strong>${name} (${role})</strong>: ${msg}</span>
+            <span class="muted">${new Date().toLocaleString()}</span>
+        </div>
+        `;
+    messages.innerHTML += content;
+  };
+
+  socket.on("message", (data) => {
+    if (data.role === "Assistant") {
+      ai_recommendation.innerHTML = `<strong>AI Recommendation:</strong> ${data.message}`;
+    } else {
+      createMessage(data.name, data.message, data.role);
+    }
+  });
+
+  const sendMessage = () => {
+    const message = document.getElementById("message_input").value;
+    if (message === "") return;
+    socket.emit("message", { data: message, role: "Therapist" });
+    document.getElementById("message_input").value = "";
+  };
+
+  const enterkey = () => {
+    if (window.event.keyCode === 13) {
+      sendMessage();
+    }
+  };
+</script>
+{% endblock %}
